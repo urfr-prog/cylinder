@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ADAM v3 - 40 Faces</title>
+    <title>ADAM v3 - 40 Faces + Fusion</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
@@ -55,7 +55,11 @@
             z-index: 0;
         }
         
-        /* Bords arrondis selon position - chaque face a sa bordure côté médiane */
+        .face.empty {
+            opacity: 0.3;
+        }
+        
+        /* Bords arrondis selon position - médianes superposées sur le même pixel */
         .face.left {
             border-radius: 14px 0 0 14px;
             border-right: 1px solid rgba(180, 180, 190, 0.35);
@@ -64,6 +68,7 @@
         .face.right {
             border-radius: 0 14px 14px 0;
             border-left: 1px solid rgba(180, 180, 190, 0.35);
+            margin-left: -1px; /* Superposer la médiane */
         }
         
         /* Zone corridor (pour détecter le drag vertical) */
@@ -130,6 +135,10 @@
             stroke: #34d399; 
             filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.9));
         }
+        .face.emerald svg .icon.filled { 
+            fill: #34d399; 
+            filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.9));
+        }
         .face.emerald {
             box-shadow: inset 0 0 25px rgba(52, 211, 153, 0.2);
             border-color: rgba(52, 211, 153, 0.6);
@@ -139,11 +148,36 @@
             stroke: #c4b5fd; 
             filter: drop-shadow(0 0 6px rgba(131, 56, 236, 0.7));
         }
+        .face.cosmic svg .icon.filled { 
+            fill: #c4b5fd; 
+            filter: drop-shadow(0 0 6px rgba(131, 56, 236, 0.7));
+        }
         .face.cosmic {
             box-shadow: inset 0 0 25px rgba(131, 56, 236, 0.2);
             border-color: rgba(131, 56, 236, 0.6);
         }
         
+        /* === ANIMATION FUSION === */
+        @keyframes fusionTilt {
+            0% { transform: perspective(200px) rotateY(0deg); }
+            50% { transform: perspective(200px) rotateY(-25deg) scale(0.95); }
+            100% { transform: perspective(200px) rotateY(0deg) scale(0.9); opacity: 0.6; }
+        }
+        
+        @keyframes fusionReceive {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); filter: brightness(1.3); }
+            100% { transform: scale(1); }
+        }
+        
+        .fusion-tilt {
+            animation: fusionTilt 0.4s ease-out forwards;
+        }
+        
+        .fusion-receive {
+            animation: fusionReceive 0.4s ease-out;
+        }
+
         /* Debug info */
         .debug {
             position: fixed;
@@ -168,6 +202,9 @@
         const TOTAL_CELLS = COLS * ROWS; // 20
         const TOTAL_FACES = TOTAL_CELLS * 2; // 40
         
+        // Ordre des états pour montée en gamme
+        const STATE_ORDER = ['white', 'silver', 'gold', 'emerald', 'cosmic'];
+        
         const wrapper = document.getElementById('wrapper');
         const grid = document.getElementById('grid');
         const debug = document.getElementById('debug');
@@ -180,6 +217,18 @@
         let GRID_WIDTH = 360;
         let GRID_HEIGHT = 450;
         
+        // Flag pour bloquer pendant les animations
+        let isAnimating = false;
+        let isDiagonalRotating = false;
+        
+        // Stocker les faces qui ont bougé (pour déterminer le percuteur)
+        let movedFaceIndices = [];
+        
+        // État pour la rotation diagonale continue
+        let continuousState = null;
+        let continuousTimer = null;
+        const ROTATION_SPEED = 600; // Durée animation diagonale
+        
         function updateDimensions() {
             const vw18 = window.innerWidth * 0.18;
             CELL_SIZE = Math.min(80, vw18);
@@ -191,39 +240,33 @@
         }
         
         // ============================================
-        // ICÔNES - EXACTEMENT comme l'original
-        // f1 = pointe vers le HAUT (pour face du haut dans domino vertical)
-        // f2 = pointe vers le BAS (pour face du bas dans domino vertical)
-        // 
-        // Dans notre cas (dominos horizontaux, médianes verticales) :
-        // - Face GAUCHE doit pointer vers la DROITE (vers la médiane) = on utilise f2 tourné
-        // - Face DROITE doit pointer vers la GAUCHE (vers la médiane) = on utilise f1 tourné
+        // ICÔNES
         // ============================================
         const ICONS = {
             chevron: { 
-                f1: 'M20 32L45 12L70 32',  // pointe haut
-                f2: 'M20 12L45 32L70 12',  // pointe bas
+                f1: 'M20 32L45 12L70 32',
+                f2: 'M20 12L45 32L70 12',
                 t: 'path' 
             },
             triangle: { 
-                f1: 'M45 8L65 36L25 36Z',   // pointe haut
-                f2: 'M45 36L65 8L25 8Z',    // pointe bas
+                f1: 'M45 8L65 36L25 36Z',
+                f2: 'M45 36L65 8L25 8Z',
                 t: 'path' 
             },
             threeLines: { 
-                f1: '25,10,25,34|45,16,45,34|65,10,65,34',  // ligne centrale courte en haut
-                f2: '25,34,25,10|45,28,45,10|65,34,65,10',  // ligne centrale courte en bas
+                f1: '25,10,25,34|45,16,45,34|65,10,65,34',
+                f2: '25,34,25,10|45,28,45,10|65,34,65,10',
                 t: 'lines' 
             },
             halfCircle: { 
-                f1: 'M28 28 Q45 8 62 28',   // arc ouvert vers haut
-                f2: 'M28 16 Q45 36 62 16',  // arc ouvert vers bas
+                f1: 'M28 28 Q45 8 62 28',
+                f2: 'M28 16 Q45 36 62 16',
                 t: 'path' 
             }
         };
         
-        // Fonction de rendu d'icône (comme l'original)
         function renderIcon(icon, isF2, stateClass) {
+            if (!icon) return ''; // Face vide
             const d = ICONS[icon];
             if (!d) return '';
             const data = isF2 ? d.f2 : d.f1;
@@ -243,47 +286,41 @@
         // ============================================
         // DONNÉES : 40 faces
         // ============================================
-        // Chaque face a : icon, state, slot (0-39)
-        // Slots pairs = gauche, impairs = droite
-        
         let faces = [];
         let faceElements = [];
         let ghostElements = [];
         
-        // Preset initial (identique à l'original)
         const preset = [
-            ['triangle', 'halfCircle'],   // cellule 0
-            ['chevron', 'threeLines'],    // cellule 1
-            ['triangle', 'chevron'],      // cellule 2
-            ['halfCircle', 'threeLines'], // cellule 3
-            ['chevron', 'halfCircle'],    // cellule 4
-            ['triangle', 'halfCircle'],   // cellule 5
-            ['chevron', 'threeLines'],    // cellule 6
-            ['triangle', 'halfCircle'],   // cellule 7
-            ['triangle', 'halfCircle'],   // cellule 8
-            ['chevron', 'chevron'],       // cellule 9
-            ['threeLines', 'threeLines'], // cellule 10
-            ['chevron', 'triangle'],      // cellule 11
-            ['halfCircle', 'threeLines'], // cellule 12
-            ['halfCircle', 'chevron'],    // cellule 13
-            ['triangle', 'threeLines'],   // cellule 14
-            ['triangle', 'halfCircle'],   // cellule 15
-            ['triangle', 'threeLines'],   // cellule 16
-            ['halfCircle', 'threeLines'], // cellule 17
-            ['chevron', 'threeLines'],    // cellule 18
-            ['chevron', 'halfCircle']     // cellule 19
+            ['triangle', 'halfCircle'],
+            ['chevron', 'threeLines'],
+            ['triangle', 'chevron'],
+            ['halfCircle', 'threeLines'],
+            ['chevron', 'halfCircle'],
+            ['triangle', 'halfCircle'],
+            ['chevron', 'threeLines'],
+            ['triangle', 'halfCircle'],
+            ['triangle', 'halfCircle'],
+            ['chevron', 'chevron'],
+            ['threeLines', 'threeLines'],
+            ['chevron', 'triangle'],
+            ['halfCircle', 'threeLines'],
+            ['halfCircle', 'chevron'],
+            ['triangle', 'threeLines'],
+            ['triangle', 'halfCircle'],
+            ['triangle', 'threeLines'],
+            ['halfCircle', 'threeLines'],
+            ['chevron', 'threeLines'],
+            ['chevron', 'halfCircle']
         ];
         
         function initFaces() {
             faces = [];
             for (let cell = 0; cell < TOTAL_CELLS; cell++) {
-                // Face gauche (slot pair)
                 faces.push({
                     icon: preset[cell][0],
                     state: 'white',
                     slot: cell * 2
                 });
-                // Face droite (slot impair)
                 faces.push({
                     icon: preset[cell][1],
                     state: 'white',
@@ -303,7 +340,7 @@
             const row = Math.floor(cellIndex / COLS);
             const x = col * CELL_TOTAL + (isRight ? HALF_SIZE : 0);
             const y = row * CELL_TOTAL;
-            return { x, y, col, row, isRight };
+            return { x, y, col, row, isRight, cellIndex };
         }
         
         function getFaceBySlot(slot) {
@@ -315,22 +352,19 @@
         }
         
         // ============================================
-        // CRÉATION DES ÉLÉMENTS (une seule fois)
+        // CRÉATION DES ÉLÉMENTS
         // ============================================
         
         function createFaceElement(face, index) {
             const el = document.createElement('div');
             const pos = getSlotPosition(face.slot);
             
-            el.className = `face ${pos.isRight ? 'right' : 'left'} ${face.state}`;
+            const emptyClass = face.icon ? '' : 'empty';
+            el.className = `face ${pos.isRight ? 'right' : 'left'} ${face.state} ${emptyClass}`.trim();
             el.dataset.index = index;
             
-            // SVG viewBox 90x45 comme l'original, avec rotation 90° pour orientation horizontale
-            // Face GAUCHE (isRight=false) : icône doit pointer vers la DROITE → f2 + rotate(90)
-            // Face DROITE (isRight=true) : icône doit pointer vers la GAUCHE → f1 + rotate(90)
-            const useF2 = !pos.isRight;  // Gauche = f2, Droite = f1
-            const stateClass = face.state;
-            const svgContent = renderIcon(face.icon, useF2, stateClass);
+            const useF2 = !pos.isRight;
+            const svgContent = renderIcon(face.icon, useF2, face.state);
             
             el.innerHTML = `<svg viewBox="0 0 90 45" style="transform: rotate(90deg)">${svgContent}</svg>`;
             
@@ -358,14 +392,12 @@
             grid.innerHTML = '';
             faceElements = [];
             
-            // Créer les 40 faces
             for (let i = 0; i < TOTAL_FACES; i++) {
                 const el = createFaceElement(faces[i], i);
                 grid.appendChild(el);
                 faceElements.push(el);
             }
             
-            // Créer les 3 zones corridor
             for (let c = 0; c < COLS - 1; c++) {
                 const el = createCorridorZone(c);
                 grid.appendChild(el);
@@ -373,8 +405,24 @@
         }
         
         // ============================================
-        // MISE À JOUR DES POSITIONS (sans recréer)
+        // MISE À JOUR VISUELLE D'UNE FACE
         // ============================================
+        
+        function updateFaceVisual(faceIndex) {
+            const face = faces[faceIndex];
+            const el = faceElements[faceIndex];
+            if (!el) return;
+            
+            const pos = getSlotPosition(face.slot);
+            const useF2 = !pos.isRight;
+            const svgContent = renderIcon(face.icon, useF2, face.state);
+            
+            el.innerHTML = `<svg viewBox="0 0 90 45" style="transform: rotate(90deg)">${svgContent}</svg>`;
+            
+            // Mettre à jour les classes
+            el.className = `face ${pos.isRight ? 'right' : 'left'} ${face.state}`;
+            if (!face.icon) el.classList.add('empty');
+        }
         
         function updateFacePosition(faceIndex, animate = true) {
             const face = faces[faceIndex];
@@ -392,7 +440,6 @@
             el.style.left = pos.x + 'px';
             el.style.top = pos.y + 'px';
             
-            // Mettre à jour la classe left/right
             el.classList.remove('left', 'right');
             el.classList.add(pos.isRight ? 'right' : 'left');
         }
@@ -404,7 +451,123 @@
         }
         
         // ============================================
-        // GHOSTS POUR WRAP-AROUND VERTICAL
+        // SYSTÈME DE FUSION
+        // ============================================
+        
+        // Trouver les paires de faces adjacentes sur les corridors (entre cellules)
+        function getAdjacentPairsOnCorridors() {
+            const pairs = [];
+            
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS - 1; col++) {
+                    // Face droite de la cellule courante
+                    const rightSlot = (row * COLS + col) * 2 + 1;
+                    // Face gauche de la cellule suivante
+                    const leftSlot = (row * COLS + col + 1) * 2;
+                    
+                    const rightFaceIdx = getFaceIndexBySlot(rightSlot);
+                    const leftFaceIdx = getFaceIndexBySlot(leftSlot);
+                    
+                    if (rightFaceIdx >= 0 && leftFaceIdx >= 0) {
+                        pairs.push({
+                            rightFaceIdx,
+                            leftFaceIdx,
+                            rightSlot,
+                            leftSlot,
+                            row,
+                            corridorIndex: col
+                        });
+                    }
+                }
+            }
+            
+            return pairs;
+        }
+        
+        function checkFusions() {
+            if (isAnimating) return;
+            
+            const pairs = getAdjacentPairsOnCorridors();
+            
+            for (const pair of pairs) {
+                const rightFace = faces[pair.rightFaceIdx];
+                const leftFace = faces[pair.leftFaceIdx];
+                
+                // Vérifier si les deux faces ont la même icône (et ne sont pas vides)
+                if (rightFace.icon && leftFace.icon && rightFace.icon === leftFace.icon) {
+                    // Déterminer qui est le percuteur (celui qui a bougé)
+                    const rightMoved = movedFaceIndices.includes(pair.rightFaceIdx);
+                    const leftMoved = movedFaceIndices.includes(pair.leftFaceIdx);
+                    
+                    let percuteurIdx, receveurIdx;
+                    
+                    if (rightMoved && !leftMoved) {
+                        percuteurIdx = pair.rightFaceIdx;
+                        receveurIdx = pair.leftFaceIdx;
+                    } else if (leftMoved && !rightMoved) {
+                        percuteurIdx = pair.leftFaceIdx;
+                        receveurIdx = pair.rightFaceIdx;
+                    } else if (rightMoved && leftMoved) {
+                        // Les deux ont bougé, on prend celui de droite comme percuteur
+                        percuteurIdx = pair.rightFaceIdx;
+                        receveurIdx = pair.leftFaceIdx;
+                    } else {
+                        // Aucun n'a bougé, pas de fusion
+                        continue;
+                    }
+                    
+                    // Exécuter la fusion
+                    performFusion(percuteurIdx, receveurIdx);
+                    return; // Une fusion à la fois
+                }
+            }
+            
+            // Pas de fusion trouvée, reset
+            movedFaceIndices = [];
+        }
+        
+        function performFusion(percuteurIdx, receveurIdx) {
+            isAnimating = true;
+            
+            const percuteur = faces[percuteurIdx];
+            const receveur = faces[receveurIdx];
+            
+            const percuteurEl = faceElements[percuteurIdx];
+            const receveurEl = faceElements[receveurIdx];
+            
+            // Animation: percuteur bascule vers le receveur
+            percuteurEl.classList.add('fusion-tilt');
+            receveurEl.classList.add('fusion-receive');
+            
+            setTimeout(() => {
+                // Montée en gamme du receveur
+                const currentStateIdx = STATE_ORDER.indexOf(receveur.state);
+                const percuteurStateIdx = STATE_ORDER.indexOf(percuteur.state);
+                const newStateIdx = Math.min(currentStateIdx + percuteurStateIdx + 1, STATE_ORDER.length - 1);
+                receveur.state = STATE_ORDER[newStateIdx];
+                
+                // Percuteur se vide
+                percuteur.icon = null;
+                percuteur.state = 'white';
+                
+                // Mettre à jour les visuels
+                updateFaceVisual(percuteurIdx);
+                updateFaceVisual(receveurIdx);
+                
+                // Nettoyer les animations
+                percuteurEl.classList.remove('fusion-tilt');
+                receveurEl.classList.remove('fusion-receive');
+                
+                isAnimating = false;
+                movedFaceIndices = [];
+                
+                // Vérifier s'il y a d'autres fusions en chaîne
+                setTimeout(checkFusions, 100);
+            }, 400);
+        }
+        
+        // ============================================
+        // GHOSTS POUR WRAP-AROUND
         // ============================================
         
         function createGhostsForCorridor(corridorIndex) {
@@ -419,128 +582,18 @@
                 const face = faces[faceIndex];
                 const pos = getSlotPosition(slot);
                 
-                // Ghost en haut
                 const ghostTop = createFaceElement(face, faceIndex);
                 ghostTop.classList.add('ghost');
                 ghostTop.style.top = (pos.y - GRID_HEIGHT) + 'px';
                 grid.appendChild(ghostTop);
                 ghostElements.push({ el: ghostTop, baseY: pos.y - GRID_HEIGHT, slot });
                 
-                // Ghost en bas
                 const ghostBottom = createFaceElement(face, faceIndex);
                 ghostBottom.classList.add('ghost');
                 ghostBottom.style.top = (pos.y + GRID_HEIGHT) + 'px';
                 grid.appendChild(ghostBottom);
                 ghostElements.push({ el: ghostBottom, baseY: pos.y + GRID_HEIGHT, slot });
             }
-        }
-        
-        function clearGhosts() {
-            ghostElements.forEach(g => g.el.remove());
-            ghostElements = [];
-        }
-        
-        // ============================================
-        // ROTATION (swap 2 faces d'une même cellule)
-        // ============================================
-        
-        function rotateDomino(cellIndex) {
-            const leftSlot = cellIndex * 2;
-            const rightSlot = cellIndex * 2 + 1;
-            
-            const leftFaceIdx = getFaceIndexBySlot(leftSlot);
-            const rightFaceIdx = getFaceIndexBySlot(rightSlot);
-            
-            if (leftFaceIdx < 0 || rightFaceIdx < 0) return;
-            
-            const leftFace = faces[leftFaceIdx];
-            const rightFace = faces[rightFaceIdx];
-            
-            // Swap les slots
-            leftFace.slot = rightSlot;
-            rightFace.slot = leftSlot;
-            
-            // Mettre à jour le SVG (le f1/f2 dépend de la position, pas de la face)
-            const leftEl = faceElements[leftFaceIdx];
-            const rightEl = faceElements[rightFaceIdx];
-            
-            // leftFace est maintenant à droite → utilise f1
-            leftEl.innerHTML = `<svg viewBox="0 0 90 45" style="transform: rotate(90deg)">${renderIcon(leftFace.icon, false, leftFace.state)}</svg>`;
-            // rightFace est maintenant à gauche → utilise f2
-            rightEl.innerHTML = `<svg viewBox="0 0 90 45" style="transform: rotate(90deg)">${renderIcon(rightFace.icon, true, rightFace.state)}</svg>`;
-            
-            // Animer les positions
-            updateFacePosition(leftFaceIdx, true);
-            updateFacePosition(rightFaceIdx, true);
-        }
-        
-        // ============================================
-        // ÉTAT DU DRAG
-        // ============================================
-        
-        let isDragging = false;
-        let dragAxis = null; // 'horizontal', 'corridor', ou null
-        let dragCorridor = -1;
-        let dragRow = -1;
-        let dragStartX = 0;
-        let dragStartY = 0;
-        let dragOffset = 0;
-        let corridorFaceIndices = [];
-        let horizontalFaceIndices = [];
-        let initialPositions = []; // {faceIdx, baseX ou baseY}
-        
-        // ============================================
-        // CORRIDOR SLIDE (vertical)
-        // ============================================
-        
-        function getCorridorSlots(corridorIndex) {
-            // Corridor N = entre col N et col N+1
-            // Slots: droite de col N + gauche de col N+1
-            const slots = [];
-            for (let row = 0; row < ROWS; row++) {
-                const leftCell = row * COLS + corridorIndex;
-                const rightCell = row * COLS + corridorIndex + 1;
-                slots.push(leftCell * 2 + 1);  // droite du gauche
-                slots.push(rightCell * 2);      // gauche du droite
-            }
-            return slots;
-        }
-        
-        function startCorridorDrag(e, corridorIndex) {
-            e.preventDefault();
-            isDragging = true;
-            dragAxis = 'corridor';
-            dragCorridor = corridorIndex;
-            dragStartY = e.touches ? e.touches[0].clientY : e.clientY;
-            dragOffset = 0;
-            
-            // Identifier les faces du corridor
-            const slots = getCorridorSlots(corridorIndex);
-            corridorFaceIndices = slots.map(s => getFaceIndexBySlot(s)).filter(i => i >= 0);
-            
-            // Sauvegarder positions initiales
-            initialPositions = corridorFaceIndices.map(faceIdx => ({
-                faceIdx,
-                baseY: getSlotPosition(faces[faceIdx].slot).y
-            }));
-            
-            // Créer les ghosts
-            createGhostsForCorridor(corridorIndex);
-        }
-        
-        // ============================================
-        // HORIZONTAL SLIDE (ligne entière)
-        // ============================================
-        
-        function getRowSlots(row) {
-            // Tous les slots de la ligne (8 faces pour 4 cellules)
-            const slots = [];
-            for (let col = 0; col < COLS; col++) {
-                const cell = row * COLS + col;
-                slots.push(cell * 2);     // gauche
-                slots.push(cell * 2 + 1); // droite
-            }
-            return slots;
         }
         
         function createGhostsForRow(row) {
@@ -555,14 +608,12 @@
                 const face = faces[faceIndex];
                 const pos = getSlotPosition(slot);
                 
-                // Ghost à gauche
                 const ghostLeft = createFaceElement(face, faceIndex);
                 ghostLeft.classList.add('ghost');
                 ghostLeft.style.left = (pos.x - GRID_WIDTH) + 'px';
                 grid.appendChild(ghostLeft);
                 ghostElements.push({ el: ghostLeft, baseX: pos.x - GRID_WIDTH, slot });
                 
-                // Ghost à droite
                 const ghostRight = createFaceElement(face, faceIndex);
                 ghostRight.classList.add('ghost');
                 ghostRight.style.left = (pos.x + GRID_WIDTH) + 'px';
@@ -571,62 +622,361 @@
             }
         }
         
+        function clearGhosts() {
+            ghostElements.forEach(g => g.el.remove());
+            ghostElements = [];
+        }
+        
+        // ============================================
+        // ROTATION (swap 2 faces d'une même cellule)
+        // ============================================
+        
+        function rotateDomino(cellIndex) {
+            if (isAnimating) return;
+            
+            const leftSlot = cellIndex * 2;
+            const rightSlot = cellIndex * 2 + 1;
+            
+            const leftFaceIdx = getFaceIndexBySlot(leftSlot);
+            const rightFaceIdx = getFaceIndexBySlot(rightSlot);
+            
+            if (leftFaceIdx < 0 || rightFaceIdx < 0) return;
+            
+            const leftFace = faces[leftFaceIdx];
+            const rightFace = faces[rightFaceIdx];
+            
+            leftFace.slot = rightSlot;
+            rightFace.slot = leftSlot;
+            
+            updateFaceVisual(leftFaceIdx);
+            updateFaceVisual(rightFaceIdx);
+            
+            updateFacePosition(leftFaceIdx, true);
+            updateFacePosition(rightFaceIdx, true);
+            
+            // Les deux faces ont bougé (rotation)
+            movedFaceIndices = [leftFaceIdx, rightFaceIdx];
+            
+            // Vérifier les fusions après rotation
+            setTimeout(checkFusions, 200);
+        }
+        
+        // ============================================
+        // DÉPLACEMENT DIAGONAL (rotation groupe 2x2)
+        // ============================================
+        
+        function detectDiag(dx, dy) {
+            const ax = Math.abs(dx), ay = Math.abs(dy);
+            if (ax < 15 || ay < 15 || ax/ay < 0.5 || ax/ay > 2) return null;
+            return dy < 0 ? (dx > 0 ? 'ur' : 'ul') : (dx > 0 ? 'dr' : 'dl');
+        }
+        
+        function getGroup(col, row, dir) {
+            // Retourne les 4 indices de cellules du groupe 2x2
+            const off = { ur: [0,-1], ul: [-1,-1], dr: [0,0], dl: [-1,0] };
+            const [ox, oy] = off[dir];
+            const tx = col + ox, ty = row + oy;
+            if (tx < 0 || tx > COLS-2 || ty < 0 || ty > ROWS-2) return null;
+            // Indices des 4 cellules: [topLeft, topRight, bottomLeft, bottomRight]
+            return [
+                ty * COLS + tx,           // top-left
+                ty * COLS + tx + 1,       // top-right
+                (ty + 1) * COLS + tx,     // bottom-left
+                (ty + 1) * COLS + tx + 1  // bottom-right
+            ];
+        }
+        
+        function isClockwise(dir) { 
+            return dir === 'ur' || dir === 'dl'; 
+        }
+        
+        function stopContinuous() { 
+            if (continuousTimer) { 
+                clearTimeout(continuousTimer); 
+                continuousTimer = null; 
+            } 
+            continuousState = null; 
+        }
+        
+        function executeDiagonalRotation(cellIndices, clockwise, cb) {
+            if (isDiagonalRotating || isAnimating) return;
+            isDiagonalRotating = true;
+            
+            // Collecter les 8 faces du groupe (2 par cellule)
+            const facesInGroup = [];
+            for (const cellIdx of cellIndices) {
+                const leftSlot = cellIdx * 2;
+                const rightSlot = cellIdx * 2 + 1;
+                const leftFaceIdx = getFaceIndexBySlot(leftSlot);
+                const rightFaceIdx = getFaceIndexBySlot(rightSlot);
+                if (leftFaceIdx >= 0) facesInGroup.push({ faceIdx: leftFaceIdx, slot: leftSlot });
+                if (rightFaceIdx >= 0) facesInGroup.push({ faceIdx: rightFaceIdx, slot: rightSlot });
+            }
+            
+            // Calculer les nouvelles positions (rotation des slots dans le groupe 2x2)
+            // Mapping des slots dans un groupe 2x2:
+            // Cellules: [TL, TR, BL, BR] = [cellIndices[0], cellIndices[1], cellIndices[2], cellIndices[3]]
+            // Slots:    [TL-L, TL-R, TR-L, TR-R, BL-L, BL-R, BR-L, BR-R]
+            //           [0,    1,    2,    3,    4,    5,    6,    7]
+            
+            const slotMapping = clockwise 
+                ? [4, 2, 5, 0, 6, 3, 7, 1]  // CW: chaque position va vers la suivante en sens horaire
+                : [3, 7, 1, 5, 0, 4, 2, 6]; // CCW: sens anti-horaire
+            
+            // Créer un mapping slot -> nouveau slot
+            const groupSlots = [
+                cellIndices[0] * 2,     cellIndices[0] * 2 + 1,  // TL-L, TL-R
+                cellIndices[1] * 2,     cellIndices[1] * 2 + 1,  // TR-L, TR-R
+                cellIndices[2] * 2,     cellIndices[2] * 2 + 1,  // BL-L, BL-R
+                cellIndices[3] * 2,     cellIndices[3] * 2 + 1   // BR-L, BR-R
+            ];
+            
+            const slotToNewSlot = {};
+            for (let i = 0; i < 8; i++) {
+                slotToNewSlot[groupSlots[i]] = groupSlots[slotMapping[i]];
+            }
+            
+            // Préparer l'animation
+            const animData = facesInGroup.map(f => {
+                const oldPos = getSlotPosition(f.slot);
+                const newSlot = slotToNewSlot[f.slot];
+                const newPos = getSlotPosition(newSlot);
+                return {
+                    faceIdx: f.faceIdx,
+                    el: faceElements[f.faceIdx],
+                    oldSlot: f.slot,
+                    newSlot: newSlot,
+                    startX: oldPos.x,
+                    startY: oldPos.y,
+                    endX: newPos.x,
+                    endY: newPos.y
+                };
+            });
+            
+            // Animation fluide
+            const dur = continuousState ? ROTATION_SPEED * 0.7 : ROTATION_SPEED * 0.5;
+            const start = performance.now();
+            
+            function animate(t) {
+                const p = Math.min((t - start) / dur, 1);
+                const e = 1 - Math.pow(1 - p, 3); // Easing cubic out
+                
+                for (const a of animData) {
+                    if (a.el) {
+                        const x = a.startX + (a.endX - a.startX) * e;
+                        const y = a.startY + (a.endY - a.startY) * e;
+                        a.el.style.transition = 'none';
+                        a.el.style.left = x + 'px';
+                        a.el.style.top = y + 'px';
+                    }
+                }
+                
+                if (p < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    finishDiagonalRotation(animData, cb);
+                }
+            }
+            
+            requestAnimationFrame(animate);
+        }
+        
+        function finishDiagonalRotation(animData, cb) {
+            // Appliquer les nouveaux slots aux données
+            for (const a of animData) {
+                faces[a.faceIdx].slot = a.newSlot;
+            }
+            
+            // Stocker les faces qui ont bougé
+            movedFaceIndices = animData.map(a => a.faceIdx);
+            
+            // Mettre à jour les visuels (direction des icônes)
+            for (const a of animData) {
+                updateFaceVisual(a.faceIdx);
+                updateFacePosition(a.faceIdx, false);
+                
+                // Mettre à jour la classe left/right
+                const pos = getSlotPosition(a.newSlot);
+                a.el.classList.remove('left', 'right');
+                a.el.classList.add(pos.isRight ? 'right' : 'left');
+            }
+            
+            isDiagonalRotating = false;
+            
+            // Vérifier les fusions
+            setTimeout(checkFusions, 50);
+            
+            if (cb) cb();
+        }
+        
+        function attemptDiagonalRotation(col, row, dx, dy) {
+            const dir = detectDiag(dx, dy);
+            if (!dir) return false;
+            
+            const group = getGroup(col, row, dir);
+            if (!group) return false;
+            
+            // Vérifier qu'il y a au moins une face dans le groupe
+            let hasFace = false;
+            for (const cellIdx of group) {
+                const leftFaceIdx = getFaceIndexBySlot(cellIdx * 2);
+                const rightFaceIdx = getFaceIndexBySlot(cellIdx * 2 + 1);
+                if (leftFaceIdx >= 0 && faces[leftFaceIdx].icon) hasFace = true;
+                if (rightFaceIdx >= 0 && faces[rightFaceIdx].icon) hasFace = true;
+            }
+            if (!hasFace) return false;
+            
+            continuousState = { col, row, dir };
+            
+            // Rotation continue tant qu'on maintient
+            (function step() {
+                if (!continuousState) return;
+                const g = getGroup(continuousState.col, continuousState.row, continuousState.dir);
+                if (!g) { stopContinuous(); return; }
+                
+                executeDiagonalRotation(g, isClockwise(continuousState.dir), () => {
+                    if (continuousState) {
+                        continuousTimer = setTimeout(step, ROTATION_SPEED * 0.3);
+                    }
+                });
+            })();
+            
+            return true;
+        }
+        
+        // ============================================
+        // ÉTAT DU DRAG
+        // ============================================
+        
+        let isDragging = false;
+        let dragAxis = null;
+        let dragCorridor = -1;
+        let dragRow = -1;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let dragOffset = 0;
+        let corridorFaceIndices = [];
+        let horizontalFaceIndices = [];
+        let initialPositions = [];
+        let dragStartCol = -1;
+        let dragStartRow = -1;
+        let dragMoved = false;
+        
+        // ============================================
+        // CORRIDOR SLIDE (vertical)
+        // ============================================
+        
+        function getCorridorSlots(corridorIndex) {
+            const slots = [];
+            for (let row = 0; row < ROWS; row++) {
+                const leftCell = row * COLS + corridorIndex;
+                const rightCell = row * COLS + corridorIndex + 1;
+                slots.push(leftCell * 2 + 1);
+                slots.push(rightCell * 2);
+            }
+            return slots;
+        }
+        
+        function startCorridorDrag(e, corridorIndex) {
+            if (isAnimating || isDiagonalRotating) return;
+            e.preventDefault();
+            isDragging = true;
+            dragAxis = 'corridor';
+            dragCorridor = corridorIndex;
+            dragStartY = e.touches ? e.touches[0].clientY : e.clientY;
+            dragOffset = 0;
+            
+            const slots = getCorridorSlots(corridorIndex);
+            corridorFaceIndices = [];
+            initialPositions = [];
+            
+            for (const slot of slots) {
+                const faceIdx = getFaceIndexBySlot(slot);
+                if (faceIdx < 0) continue;
+                
+                const pos = getSlotPosition(slot);
+                corridorFaceIndices.push(faceIdx);
+                initialPositions.push({
+                    faceIdx,
+                    baseY: pos.y,
+                    originalRow: pos.row
+                });
+            }
+            
+            createGhostsForCorridor(corridorIndex);
+        }
+        
+        // ============================================
+        // HORIZONTAL SLIDE
+        // ============================================
+        
+        function getRowSlots(row) {
+            const slots = [];
+            for (let col = 0; col < COLS; col++) {
+                const cell = row * COLS + col;
+                slots.push(cell * 2);
+                slots.push(cell * 2 + 1);
+            }
+            return slots;
+        }
+        
         function startHorizontalDrag(row) {
+            if (isAnimating || isDiagonalRotating) return;
             dragAxis = 'horizontal';
             dragRow = row;
             
-            // Identifier les faces de la ligne
             const slots = getRowSlots(row);
-            horizontalFaceIndices = slots.map(s => getFaceIndexBySlot(s)).filter(i => i >= 0);
+            horizontalFaceIndices = [];
+            initialPositions = [];
             
-            // Sauvegarder positions initiales
-            initialPositions = horizontalFaceIndices.map(faceIdx => ({
-                faceIdx,
-                baseX: getSlotPosition(faces[faceIdx].slot).x
-            }));
+            for (const slot of slots) {
+                const faceIdx = getFaceIndexBySlot(slot);
+                if (faceIdx < 0) continue;
+                
+                const pos = getSlotPosition(slot);
+                horizontalFaceIndices.push(faceIdx);
+                initialPositions.push({
+                    faceIdx,
+                    baseX: pos.x,
+                    originalCol: pos.col,
+                    isRight: pos.isRight
+                });
+            }
             
-            // Créer les ghosts
             createGhostsForRow(row);
         }
         
         // ============================================
-        // MOVE DRAG
+        // DRAG MOVE
         // ============================================
         
         function moveDrag(e) {
-            if (!isDragging) return;
-            e.preventDefault();
-            
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            if (!isDragging || !dragAxis) return;
             
             if (dragAxis === 'corridor') {
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
                 dragOffset = clientY - dragStartY;
                 
-                // Déplacer les faces du corridor
                 for (const item of initialPositions) {
                     const el = faceElements[item.faceIdx];
                     el.style.transition = 'none';
                     el.style.top = (item.baseY + dragOffset) + 'px';
                 }
                 
-                // Déplacer les ghosts
                 for (const ghost of ghostElements) {
                     ghost.el.style.transition = 'none';
                     ghost.el.style.top = (ghost.baseY + dragOffset) + 'px';
                 }
-            }
-            else if (dragAxis === 'horizontal') {
+            } else if (dragAxis === 'horizontal') {
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 dragOffset = clientX - dragStartX;
                 
-                // Déplacer les faces de la ligne
                 for (const item of initialPositions) {
                     const el = faceElements[item.faceIdx];
                     el.style.transition = 'none';
                     el.style.left = (item.baseX + dragOffset) + 'px';
                 }
                 
-                // Déplacer les ghosts
                 for (const ghost of ghostElements) {
                     ghost.el.style.transition = 'none';
                     ghost.el.style.left = (ghost.baseX + dragOffset) + 'px';
@@ -634,30 +984,18 @@
             }
         }
         
-        // ============================================
-        // END DRAG
-        // ============================================
-        
         function endDrag(e) {
             if (!isDragging) return;
-            isDragging = false;
             
-            const steps = Math.round(dragOffset / CELL_TOTAL);
-            
-            if (dragAxis === 'corridor' && steps !== 0) {
+            if (dragAxis === 'corridor') {
+                const steps = Math.round(dragOffset / CELL_TOTAL);
                 endCorridorDrag(steps);
-            }
-            else if (dragAxis === 'horizontal' && steps !== 0) {
+            } else if (dragAxis === 'horizontal') {
+                const steps = Math.round(dragOffset / CELL_TOTAL);
                 endHorizontalDrag(steps);
             }
-            else {
-                // Revenir en position
-                for (const item of initialPositions) {
-                    updateFacePosition(item.faceIdx, true);
-                }
-                clearGhosts();
-            }
             
+            isDragging = false;
             dragAxis = null;
             dragCorridor = -1;
             dragRow = -1;
@@ -667,14 +1005,13 @@
         }
         
         function endCorridorDrag(steps) {
-            // Phase 1: Téléporter près de la cible
+            // Stocker les faces qui ont bougé
+            movedFaceIndices = corridorFaceIndices.slice();
+            
             for (const item of initialPositions) {
-                const face = faces[item.faceIdx];
-                const pos = getSlotPosition(face.slot);
                 const el = faceElements[item.faceIdx];
                 
-                const oldRow = pos.row;
-                const newRow = ((oldRow + steps) % ROWS + ROWS) % ROWS;
+                const newRow = ((item.originalRow + steps) % ROWS + ROWS) % ROWS;
                 const targetY = newRow * CELL_TOTAL;
                 
                 let currentY = item.baseY + dragOffset;
@@ -685,42 +1022,37 @@
                 el.style.top = currentY + 'px';
             }
             
-            grid.offsetHeight; // Forcer reflow
+            grid.offsetHeight;
             
-            // Phase 2: Animer vers la cible
             for (const item of initialPositions) {
-                const face = faces[item.faceIdx];
-                const pos = getSlotPosition(face.slot);
                 const el = faceElements[item.faceIdx];
                 
-                const oldRow = pos.row;
-                const newRow = ((oldRow + steps) % ROWS + ROWS) % ROWS;
+                const newRow = ((item.originalRow + steps) % ROWS + ROWS) % ROWS;
                 const targetY = newRow * CELL_TOTAL;
                 
                 el.style.transition = 'top 0.15s ease-out';
                 el.style.top = targetY + 'px';
             }
             
-            // Appliquer le changement de données
             applyCorridorSlide(dragCorridor, steps);
             
             setTimeout(() => {
                 clearGhosts();
                 updateAllPositions(false);
+                // Vérifier les fusions après le mouvement
+                checkFusions();
             }, 200);
         }
         
         function endHorizontalDrag(steps) {
-            // Phase 1: Téléporter près de la cible
+            // Stocker les faces qui ont bougé
+            movedFaceIndices = horizontalFaceIndices.slice();
+            
             for (const item of initialPositions) {
-                const face = faces[item.faceIdx];
-                const pos = getSlotPosition(face.slot);
                 const el = faceElements[item.faceIdx];
                 
-                const oldCol = pos.col;
-                const isRight = pos.isRight;
-                const newCol = ((oldCol + steps) % COLS + COLS) % COLS;
-                const targetX = newCol * CELL_TOTAL + (isRight ? HALF_SIZE : 0);
+                const newCol = ((item.originalCol + steps) % COLS + COLS) % COLS;
+                const targetX = newCol * CELL_TOTAL + (item.isRight ? HALF_SIZE : 0);
                 
                 let currentX = item.baseX + dragOffset;
                 while (currentX - targetX > GRID_WIDTH / 2) currentX -= GRID_WIDTH;
@@ -730,29 +1062,25 @@
                 el.style.left = currentX + 'px';
             }
             
-            grid.offsetHeight; // Forcer reflow
+            grid.offsetHeight;
             
-            // Phase 2: Animer vers la cible
             for (const item of initialPositions) {
-                const face = faces[item.faceIdx];
-                const pos = getSlotPosition(face.slot);
                 const el = faceElements[item.faceIdx];
                 
-                const oldCol = pos.col;
-                const isRight = pos.isRight;
-                const newCol = ((oldCol + steps) % COLS + COLS) % COLS;
-                const targetX = newCol * CELL_TOTAL + (isRight ? HALF_SIZE : 0);
+                const newCol = ((item.originalCol + steps) % COLS + COLS) % COLS;
+                const targetX = newCol * CELL_TOTAL + (item.isRight ? HALF_SIZE : 0);
                 
                 el.style.transition = 'left 0.15s ease-out';
                 el.style.left = targetX + 'px';
             }
             
-            // Appliquer le changement de données
             applyHorizontalSlide(dragRow, steps);
             
             setTimeout(() => {
                 clearGhosts();
                 updateAllPositions(false);
+                // Vérifier les fusions après le mouvement
+                checkFusions();
             }, 200);
         }
         
@@ -826,10 +1154,17 @@
         let clickStartTime = 0;
         
         function handleStart(e) {
+            if (isAnimating || isDiagonalRotating) return;
+            
+            // Si rotation diagonale en cours, l'arrêter
+            if (continuousState) { 
+                stopContinuous(); 
+                return; 
+            }
+            
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             
-            // Corridor ?
             const corridorZone = e.target.closest('.corridor-zone');
             if (corridorZone) {
                 const c = parseInt(corridorZone.dataset.corridor);
@@ -837,7 +1172,6 @@
                 return;
             }
             
-            // Face cliquée ?
             const faceEl = e.target.closest('.face');
             if (faceEl && !faceEl.classList.contains('ghost')) {
                 e.preventDefault();
@@ -848,17 +1182,20 @@
                 const face = faces[clickedFaceIdx];
                 const pos = getSlotPosition(face.slot);
                 dragRow = pos.row;
+                dragStartCol = pos.col;
+                dragStartRow = pos.row;
                 
                 isDragging = true;
-                dragAxis = null; // Sera déterminé au premier mouvement
+                dragAxis = null;
                 dragStartX = clientX;
                 dragStartY = clientY;
                 dragOffset = 0;
+                dragMoved = false;
             }
         }
         
         function handleMove(e) {
-            if (!isDragging) return;
+            if (!isDragging || isAnimating || isDiagonalRotating) return;
             
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -866,15 +1203,22 @@
             const deltaX = clientX - dragStartX;
             const deltaY = clientY - dragStartY;
             
-            // Déterminer l'axe au premier mouvement significatif
-            if (dragAxis === null) {
+            if (dragAxis === null && !dragMoved) {
                 const threshold = 8;
                 if (Math.abs(deltaX) > threshold || Math.abs(deltaY) > threshold) {
-                    if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                        // Drag horizontal
+                    // Vérifier d'abord si c'est un geste diagonal
+                    if (detectDiag(deltaX, deltaY)) {
+                        dragMoved = true;
+                        if (attemptDiagonalRotation(dragStartCol, dragStartRow, deltaX, deltaY)) {
+                            // Rotation diagonale initiée
+                            isDragging = false;
+                            return;
+                        }
+                    }
+                    // Sinon, vérifier si c'est un drag horizontal
+                    else if (Math.abs(deltaX) > Math.abs(deltaY)) {
                         startHorizontalDrag(dragRow);
                     }
-                    // Si vertical sur une face, on ignore (corridor uniquement par zone)
                 }
             }
             
@@ -884,26 +1228,30 @@
         }
         
         function handleEnd(e) {
-            if (!isDragging) {
-                return;
+            // Arrêter la rotation diagonale continue si active
+            if (continuousState) {
+                stopContinuous();
             }
+            
+            if (!isDragging) return;
             
             const elapsed = Date.now() - clickStartTime;
             const distance = Math.abs(dragOffset);
             
-            // Si c'est un clic (pas de mouvement significatif)
-            if (dragAxis === null && distance < 8 && elapsed < 300 && clickedFaceIdx !== null) {
+            if (dragAxis === null && distance < 8 && elapsed < 300 && clickedFaceIdx !== null && !dragMoved) {
                 const face = faces[clickedFaceIdx];
                 const cellIndex = Math.floor(face.slot / 2);
                 rotateDomino(cellIndex);
                 
                 isDragging = false;
                 clickedFaceIdx = null;
+                dragMoved = false;
                 return;
             }
             
             endDrag(e);
             clickedFaceIdx = null;
+            dragMoved = false;
         }
         
         // ============================================
@@ -925,7 +1273,6 @@
         window.addEventListener('resize', () => {
             updateDimensions();
             updateAllPositions(false);
-            // TODO: mettre à jour les médianes aussi
         });
     </script>
 </body>
