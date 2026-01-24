@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ADAM v4 - Gravité & Fusions</title>
+    <title>ADAM v4 - 8 Étages</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
@@ -16,14 +16,58 @@
             gap: 20px;
         }
         
+        /* ========== CONTENEUR PRINCIPAL ========== */
+        .game-container {
+            position: relative;
+            --cell: min(80px, 18vw);
+            --gap: 10px;
+            width: calc(4 * var(--cell) + 3 * var(--gap));
+            height: calc(4 * var(--cell) + 3 * var(--gap));
+        }
+        
+        /* ========== LAYER DES HALOS (au-dessus du masque) ========== */
+        .halo-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .halo-element {
+            position: absolute;
+            border-radius: 14px;
+            pointer-events: none;
+        }
+        
+        .halo-element.halo-silver {
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.5), 0 0 25px rgba(6, 182, 212, 0.3);
+        }
+        .halo-element.halo-gold {
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6), 0 0 35px rgba(255, 215, 0, 0.3);
+        }
+        .halo-element.halo-emerald {
+            box-shadow: 0 0 25px rgba(52, 211, 153, 0.7), 0 0 45px rgba(52, 211, 153, 0.4);
+        }
+        .halo-element.halo-cosmic {
+            box-shadow: 0 0 30px rgba(131, 56, 236, 0.6), 0 0 50px rgba(255, 0, 110, 0.3), 0 0 60px rgba(6, 182, 212, 0.2);
+        }
+        .halo-element.halo-supernovae {
+            box-shadow: 0 0 35px rgba(255, 0, 110, 0.7), 0 0 55px rgba(255, 215, 0, 0.5), 0 0 75px rgba(131, 56, 236, 0.4);
+        }
+        
         /* ========== GRILLE AVEC MASKING ========== */
         .grid-wrapper {
-            position: relative;
+            position: absolute;
+            top: 0;
+            left: 0;
             --cell: min(80px, 18vw);
             --half: calc(var(--cell) / 2);
             --gap: 10px;
             width: calc(4 * var(--cell) + 3 * var(--gap));
-            height: calc(6 * var(--cell) + 5 * var(--gap));
+            height: calc(4 * var(--cell) + 3 * var(--gap));
             overflow: hidden;
         }
         
@@ -171,6 +215,40 @@
             border-color: rgba(131, 56, 236, 0.6);
         }
         
+        .face.supernovae svg .icon { 
+            stroke: #ff006e; 
+            filter: drop-shadow(0 0 8px rgba(255, 0, 110, 0.9)) drop-shadow(0 0 15px rgba(255, 215, 0, 0.5));
+        }
+        .face.supernovae svg .icon.filled { 
+            fill: #ff006e; 
+            filter: drop-shadow(0 0 8px rgba(255, 0, 110, 0.9)) drop-shadow(0 0 15px rgba(255, 215, 0, 0.5));
+        }
+        .face.supernovae svg .point { 
+            fill: #ff006e; 
+            filter: drop-shadow(0 0 8px rgba(255, 0, 110, 0.9)) drop-shadow(0 0 15px rgba(255, 215, 0, 0.5));
+        }
+        .face.supernovae {
+            box-shadow: inset 0 0 30px rgba(255, 0, 110, 0.25);
+            border-color: rgba(255, 0, 110, 0.7);
+        }
+        
+        /* === HALOS INTERNES (sur les faces) === */
+        .face.halo-silver {
+            box-shadow: inset 0 0 15px rgba(6, 182, 212, 0.2);
+        }
+        .face.halo-gold {
+            box-shadow: inset 0 0 20px rgba(255, 215, 0, 0.2);
+        }
+        .face.halo-emerald {
+            box-shadow: inset 0 0 25px rgba(52, 211, 153, 0.25);
+        }
+        .face.halo-cosmic {
+            box-shadow: inset 0 0 25px rgba(131, 56, 236, 0.25);
+        }
+        .face.halo-supernovae {
+            box-shadow: inset 0 0 30px rgba(255, 0, 110, 0.3);
+        }
+        
         /* === ANIMATION FUSION === */
         @keyframes fusionTilt {
             0% { transform: perspective(200px) rotateY(0deg); }
@@ -184,12 +262,30 @@
             100% { transform: scale(1); }
         }
         
+        @keyframes fusionDisappear {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(0); opacity: 0; }
+        }
+        
+        @keyframes fusionReappear {
+            0% { transform: scale(0); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
         .fusion-tilt {
             animation: fusionTilt 0.4s ease-out forwards;
         }
         
         .fusion-receive {
             animation: fusionReceive 0.4s ease-out;
+        }
+        
+        .fusion-disappear {
+            animation: fusionDisappear 0.3s ease-out forwards;
+        }
+        
+        .fusion-reappear {
+            animation: fusionReappear 0.3s ease-out forwards;
         }
 
         /* Debug info */
@@ -208,21 +304,24 @@
     </style>
 </head>
 <body>
-    <div class="debug" id="debug">ADAM V4</div>
-    <div class="grid-wrapper" id="wrapper">
-        <div class="grid-container" id="grid"></div>
+    <div class="debug" id="debug">ADAM V4 - 8 Étages</div>
+    <div class="game-container">
+        <div class="halo-layer" id="haloLayer"></div>
+        <div class="grid-wrapper" id="wrapper">
+            <div class="grid-container" id="grid"></div>
+        </div>
     </div>
     
     <script>
         // ============================================
-        // CONSTANTES
+        // CONSTANTES - 8 ÉTAGES (4 rows × 4 cols)
         // ============================================
         const COLS = 4;
-        const ROWS = 6;
-        const TOTAL_CELLS = COLS * ROWS; // 24
-        const TOTAL_FACES = TOTAL_CELLS * 2; // 48
+        const ROWS = 4;
+        const TOTAL_CELLS = COLS * ROWS; // 16
+        const TOTAL_FACES = TOTAL_CELLS * 2; // 32
         
-        const STATE_ORDER = ['white', 'silver', 'gold', 'emerald', 'cosmic'];
+        const STATE_ORDER = ['white', 'silver', 'gold', 'emerald', 'cosmic', 'supernovae'];
         
         const wrapper = document.getElementById('wrapper');
         const grid = document.getElementById('grid');
@@ -234,7 +333,7 @@
         let GAP = 10;
         let CELL_TOTAL = 90;
         let GRID_WIDTH = 360;
-        let GRID_HEIGHT = 540;
+        let GRID_HEIGHT = 360;
         
         // Flag pour bloquer pendant les animations
         let isAnimating = false;
@@ -322,7 +421,7 @@
         }
         
         // ============================================
-        // DONNÉES : 48 faces (toujours présentes, jamais supprimées)
+        // DONNÉES : 32 faces (toujours présentes, jamais supprimées)
         // ============================================
         let faces = [];
         let faceElements = [];
@@ -383,14 +482,27 @@
         }
         
         // Obtenir tous les slots d'une ligne
-        function getRowSlots(row) {
+        // filter: null = tous, 'top' = seulement top, 'bottom' = seulement bottom
+        function getRowSlots(row, filter = null) {
             const slots = [];
             for (let col = 0; col < COLS; col++) {
                 const cell = row * COLS + col;
-                slots.push(cell * 2);     // top
-                slots.push(cell * 2 + 1); // bottom
+                if (filter === null || filter === 'top') {
+                    slots.push(cell * 2);     // top
+                }
+                if (filter === null || filter === 'bottom') {
+                    slots.push(cell * 2 + 1); // bottom
+                }
             }
             return slots;
+        }
+        
+        // Obtenir les slots d'un étage (0-7)
+        // Étage 0 = tops de row 0, Étage 1 = bottoms de row 0, etc.
+        function getEtageSlots(etage) {
+            const row = Math.floor(etage / 2);
+            const isBottom = etage % 2 === 1;
+            return getRowSlots(row, isBottom ? 'bottom' : 'top');
         }
         
         // ============================================
@@ -426,6 +538,7 @@
                 grid.appendChild(el);
                 faceElements.push(el);
             }
+            updateHalos();
         }
         
         function updateFaceVisual(faceIndex) {
@@ -463,6 +576,63 @@
                 updateFacePosition(i, animate);
                 updateFaceVisual(i);
             }
+            updateHalos();
+        }
+        
+        // ============================================
+        // HALOS EXTERNES (domino complet de même état)
+        // ============================================
+        
+        const haloLayer = document.getElementById('haloLayer');
+        
+        function updateHalos() {
+            // Vider le layer des halos
+            haloLayer.innerHTML = '';
+            
+            // Pour chaque cellule (domino), vérifier si les 2 faces ont le même état
+            for (let cell = 0; cell < TOTAL_CELLS; cell++) {
+                const topSlot = cell * 2;
+                const bottomSlot = cell * 2 + 1;
+                
+                const topFaceIdx = getFaceIndexBySlot(topSlot);
+                const bottomFaceIdx = getFaceIndexBySlot(bottomSlot);
+                
+                if (topFaceIdx < 0 || bottomFaceIdx < 0) continue;
+                
+                const topFace = faces[topFaceIdx];
+                const bottomFace = faces[bottomFaceIdx];
+                const topEl = faceElements[topFaceIdx];
+                const bottomEl = faceElements[bottomFaceIdx];
+                
+                if (!topEl || !bottomEl) continue;
+                
+                // Enlever tous les halos existants sur les faces
+                topEl.classList.remove('halo-silver', 'halo-gold', 'halo-emerald', 'halo-cosmic', 'halo-supernovae');
+                bottomEl.classList.remove('halo-silver', 'halo-gold', 'halo-emerald', 'halo-cosmic', 'halo-supernovae');
+                
+                // Si les 2 faces ont le même état (et pas white/empty)
+                if (topFace.state === bottomFace.state && 
+                    topFace.state !== 'white' && 
+                    topFace.icon !== null && 
+                    bottomFace.icon !== null) {
+                    
+                    const haloClass = 'halo-' + topFace.state;
+                    
+                    // Ajouter la classe inset sur les faces
+                    topEl.classList.add(haloClass);
+                    bottomEl.classList.add(haloClass);
+                    
+                    // Créer l'élément halo externe dans le layer séparé
+                    const pos = getSlotPosition(topSlot);
+                    const haloEl = document.createElement('div');
+                    haloEl.className = 'halo-element ' + haloClass;
+                    haloEl.style.left = (pos.col * CELL_TOTAL) + 'px';
+                    haloEl.style.top = (pos.row * CELL_TOTAL) + 'px';
+                    haloEl.style.width = CELL_SIZE + 'px';
+                    haloEl.style.height = CELL_SIZE + 'px'; // Un domino = CELL_SIZE de haut
+                    haloLayer.appendChild(haloEl);
+                }
+            }
         }
         
         // ============================================
@@ -477,7 +647,7 @@
             for (let col = 0; col < COLS; col++) {
                 const slots = getColumnSlots(col);
                 // slots[0] = top de row 0 (le plus haut)
-                // slots[11] = bottom de row 5 (le plus bas)
+                // slots[7] = bottom de row 3 (le plus bas) pour 4 rows
                 
                 // Parcourir de bas en haut
                 for (let i = slots.length - 1; i >= 0; i--) {
@@ -533,7 +703,9 @@
         }
         
         // ============================================
-        // SYSTÈME DE FUSION
+        // SYSTÈME DE FUSION (NOUVELLE RÈGLE)
+        // Les deux sigles s'annulent et réapparaissent en haut comme domino jumeau
+        // La face partenaire du percuteur monte d'un état
         // ============================================
         
         // Trouver les paires adjacentes sur les corridors (entre les lignes)
@@ -573,11 +745,15 @@
                 if (!bottomFace.icon || !topFace.icon) continue;
                 if (bottomFace.icon !== topFace.icon) continue;
                 
+                // NOUVELLE RÈGLE : Les deux faces doivent avoir le même état
+                if (bottomFace.state !== topFace.state) continue;
+                
                 // Match trouvé ! On fusionne immédiatement
                 console.log(`FUSION: ${bottomFace.icon} @ col ${pair.col}, row ${pair.row}/${pair.row+1}`);
                 
-                // Le percuteur est celui du bas (arbitraire mais cohérent)
-                performFusion(pair.bottomFaceIdx, pair.topFaceIdx);
+                // bottomFace = percuteur (celui du haut du domino du bas)
+                // topFace = receveur (celui du bas du domino du haut)
+                performFusion(pair.bottomFaceIdx, pair.topFaceIdx, pair.col);
                 return; // Une fusion à la fois
             }
             
@@ -585,7 +761,7 @@
             log('Prêt');
         }
         
-        function performFusion(percuteurIdx, receveurIdx) {
+        function performFusion(percuteurIdx, receveurIdx, col) {
             isAnimating = true;
             
             const percuteur = faces[percuteurIdx];
@@ -594,36 +770,158 @@
             const percuteurEl = faceElements[percuteurIdx];
             const receveurEl = faceElements[receveurIdx];
             
-            // Animation
-            percuteurEl.classList.add('fusion-tilt');
-            receveurEl.classList.add('fusion-receive');
+            // Sauvegarder l'icône et l'état qui fusionnent
+            const fusionIcon = percuteur.icon;
+            const fusionState = percuteur.state; // Les deux ont le même état
+            
+            // Animation de disparition
+            percuteurEl.classList.add('fusion-disappear');
+            receveurEl.classList.add('fusion-disappear');
             
             setTimeout(() => {
-                // Montée en gamme du receveur
-                const currentStateIdx = STATE_ORDER.indexOf(receveur.state);
-                const percuteurStateIdx = STATE_ORDER.indexOf(percuteur.state);
-                const newStateIdx = Math.min(currentStateIdx + percuteurStateIdx + 1, STATE_ORDER.length - 1);
-                receveur.state = STATE_ORDER[newStateIdx];
-                
-                // Percuteur devient vide (mais reste dans son slot)
+                // Les deux faces deviennent vides
                 percuteur.icon = null;
                 percuteur.state = 'white';
+                receveur.icon = null;
+                receveur.state = 'white';
                 
-                // Mettre à jour les visuels
+                // Mettre à jour les visuels des faces annulées
                 updateFaceVisual(percuteurIdx);
                 updateFaceVisual(receveurIdx);
                 
                 // Nettoyer les animations
-                percuteurEl.classList.remove('fusion-tilt');
-                receveurEl.classList.remove('fusion-receive');
+                percuteurEl.classList.remove('fusion-disappear');
+                receveurEl.classList.remove('fusion-disappear');
                 
                 isAnimating = false;
                 
-                // Après fusion, appliquer la gravité (qui vérifiera ensuite les fusions)
+                // Appliquer la gravité, puis faire réapparaître le domino jumeau
                 setTimeout(() => {
-                    applyGravity();
+                    applyGravityThenRespawn(col, fusionIcon, fusionState);
                 }, 100);
-            }, 400);
+            }, 300);
+        }
+        
+        function applyGravityThenRespawn(col, fusionIcon, fusionState) {
+            // D'abord appliquer la gravité complètement
+            applyGravityWithCallback(() => {
+                // Une fois la gravité stable, faire réapparaître le domino jumeau en haut
+                respawnTwinDomino(col, fusionIcon, fusionState);
+            });
+        }
+        
+        function applyGravityWithCallback(callback) {
+            let anyMoved = false;
+            const fallenFaces = [];
+            
+            // Pour chaque colonne
+            for (let col = 0; col < COLS; col++) {
+                const slots = getColumnSlots(col);
+                
+                // Parcourir de bas en haut
+                for (let i = slots.length - 1; i >= 0; i--) {
+                    const currentSlot = slots[i];
+                    const currentFaceIdx = getFaceIndexBySlot(currentSlot);
+                    
+                    if (currentFaceIdx < 0) continue;
+                    
+                    const currentFace = faces[currentFaceIdx];
+                    
+                    // Si ce slot contient une face vide, chercher une face pleine au-dessus
+                    if (currentFace.icon === null) {
+                        for (let j = i - 1; j >= 0; j--) {
+                            const aboveSlot = slots[j];
+                            const aboveFaceIdx = getFaceIndexBySlot(aboveSlot);
+                            
+                            if (aboveFaceIdx < 0) continue;
+                            
+                            const aboveFace = faces[aboveFaceIdx];
+                            
+                            if (aboveFace.icon !== null) {
+                                // SWAP : la face pleine descend, la face vide monte
+                                const tempSlot = currentFace.slot;
+                                currentFace.slot = aboveFace.slot;
+                                aboveFace.slot = tempSlot;
+                                
+                                fallenFaces.push(aboveFaceIdx);
+                                anyMoved = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (anyMoved) {
+                log(`Gravité: ${fallenFaces.length} faces tombées`);
+                
+                isAnimating = true;
+                updateAllPositions(true);
+                
+                setTimeout(() => {
+                    isAnimating = false;
+                    applyGravityWithCallback(callback); // Récursif
+                }, 200);
+            } else {
+                // Gravité terminée
+                log('Gravité stable');
+                if (callback) callback();
+            }
+        }
+        
+        function respawnTwinDomino(col, icon, fusionState) {
+            // Trouver les 2 slots vides en haut de la colonne
+            const slots = getColumnSlots(col);
+            
+            // Les slots vides devraient être en haut après la gravité
+            // Chercher les 2 premiers slots vides (de haut en bas)
+            const emptySlots = [];
+            for (const slot of slots) {
+                const faceIdx = getFaceIndexBySlot(slot);
+                if (faceIdx >= 0 && faces[faceIdx].icon === null) {
+                    emptySlots.push({ slot, faceIdx });
+                    if (emptySlots.length === 2) break;
+                }
+            }
+            
+            if (emptySlots.length < 2) {
+                console.error('Pas assez de slots vides pour respawn!');
+                checkFusions();
+                return;
+            }
+            
+            // Calculer l'état suivant
+            const currentStateIdx = STATE_ORDER.indexOf(fusionState);
+            const nextStateIdx = Math.min(currentStateIdx + 1, STATE_ORDER.length - 1);
+            const nextState = STATE_ORDER[nextStateIdx];
+            
+            // Remplir ces 2 slots avec le domino jumeau
+            isAnimating = true;
+            
+            for (const empty of emptySlots) {
+                const face = faces[empty.faceIdx];
+                face.icon = icon;
+                face.state = nextState; // État suivant après fusion
+                
+                updateFaceVisual(empty.faceIdx);
+                
+                // Animation de réapparition
+                const el = faceElements[empty.faceIdx];
+                el.classList.add('fusion-reappear');
+                
+                setTimeout(() => {
+                    el.classList.remove('fusion-reappear');
+                }, 300);
+            }
+            
+            log(`Domino jumeau ${icon} réapparu en ${nextState}`);
+            
+            setTimeout(() => {
+                isAnimating = false;
+                updateHalos(); // Mettre à jour les halos après l'animation
+                // Vérifier s'il y a d'autres fusions
+                checkFusions();
+            }, 350);
         }
         
         // ============================================
@@ -717,6 +1015,34 @@
             }
         }
         
+        function createGhostsForEtage(etage) {
+            clearGhosts();
+            
+            const slots = getEtageSlots(etage);
+            
+            for (const slot of slots) {
+                const faceIndex = getFaceIndexBySlot(slot);
+                if (faceIndex < 0) continue;
+                
+                const face = faces[faceIndex];
+                const pos = getSlotPosition(slot);
+                
+                // Ghost à gauche
+                const ghostLeft = createFaceElement(face, faceIndex);
+                ghostLeft.classList.add('ghost');
+                ghostLeft.style.left = (pos.x - GRID_WIDTH) + 'px';
+                grid.appendChild(ghostLeft);
+                ghostElements.push({ el: ghostLeft, baseX: pos.x - GRID_WIDTH, slot });
+                
+                // Ghost à droite
+                const ghostRight = createFaceElement(face, faceIndex);
+                ghostRight.classList.add('ghost');
+                ghostRight.style.left = (pos.x + GRID_WIDTH) + 'px';
+                grid.appendChild(ghostRight);
+                ghostElements.push({ el: ghostRight, baseX: pos.x + GRID_WIDTH, slot });
+            }
+        }
+        
         function clearGhosts() {
             ghostElements.forEach(g => g.el.remove());
             ghostElements = [];
@@ -730,6 +1056,7 @@
         let dragAxis = null;
         let dragCol = -1;
         let dragRow = -1;
+        let dragEtage = -1;  // 0-7 pour les 8 étages horizontaux
         let dragStartX = 0;
         let dragStartY = 0;
         let dragOffset = 0;
@@ -745,6 +1072,9 @@
             
             dragAxis = 'vertical';
             dragCol = col;
+            
+            // Effacer les halos pendant le drag
+            haloLayer.innerHTML = '';
             
             const slots = getColumnSlots(col);
             draggedFaceIndices = [];
@@ -802,7 +1132,6 @@
                 const newRow = ((item.originalRow + steps) % ROWS + ROWS) % ROWS;
                 const targetY = newRow * CELL_TOTAL + (item.isBottom ? HALF_SIZE : 0);
                 
-                // Position courante après drag
                 let currentY = item.baseY + dragOffset;
                 while (currentY - targetY > GRID_HEIGHT / 2) currentY -= GRID_HEIGHT;
                 while (targetY - currentY > GRID_HEIGHT / 2) currentY += GRID_HEIGHT;
@@ -811,10 +1140,8 @@
                 el.style.top = currentY + 'px';
             }
             
-            // Forcer reflow
             grid.offsetHeight;
             
-            // Animer vers position cible
             for (const item of initialPositions) {
                 const el = faceElements[item.faceIdx];
                 const newRow = ((item.originalRow + steps) % ROWS + ROWS) % ROWS;
@@ -824,17 +1151,16 @@
                 el.style.top = targetY + 'px';
             }
             
-            // Appliquer les nouveaux slots
             applyVerticalSlide(dragCol, steps);
             
-            // Après animation, nettoyer et lancer gravité
             setTimeout(() => {
                 clearGhosts();
                 updateAllPositions(false);
+                updateHalos(); // Recalculer les halos après le drag
                 
                 if (steps !== 0) {
                     log(`Drag vertical col ${dragCol}, ${steps} steps`);
-                    applyGravity(); // Gravité puis fusions
+                    checkFusions();
                 } else {
                     log('Prêt');
                 }
@@ -842,16 +1168,19 @@
         }
         
         // ============================================
-        // DRAG HORIZONTAL (ligne, wrap-around, pas de gravité)
+        // DRAG HORIZONTAL (étage, wrap-around)
         // ============================================
         
-        function startHorizontalDrag(row) {
+        function startHorizontalDrag(etage) {
             if (isAnimating) return;
             
             dragAxis = 'horizontal';
-            dragRow = row;
+            dragEtage = etage;
             
-            const slots = getRowSlots(row);
+            // Effacer les halos pendant le drag
+            haloLayer.innerHTML = '';
+            
+            const slots = getEtageSlots(etage);
             draggedFaceIndices = [];
             initialPositions = [];
             
@@ -864,19 +1193,20 @@
                 initialPositions.push({
                     faceIdx,
                     baseX: pos.x,
+                    baseY: pos.y,
                     originalCol: pos.col,
                     isBottom: pos.isBottom
                 });
             }
             
-            createGhostsForRow(row);
+            createGhostsForEtage(etage);
         }
         
-        function applyHorizontalSlide(row, steps) {
+        function applyHorizontalSlide(etage, steps) {
             steps = ((steps % COLS) + COLS) % COLS;
             if (steps === 0) return;
             
-            const slots = getRowSlots(row);
+            const slots = getEtageSlots(etage);
             const moves = [];
             
             for (const slot of slots) {
@@ -885,6 +1215,7 @@
                 
                 const cellIndex = Math.floor(slot / 2);
                 const isBottom = slot % 2 === 1;
+                const row = Math.floor(cellIndex / COLS);
                 const oldCol = cellIndex % COLS;
                 
                 const newCol = ((oldCol + steps) % COLS + COLS) % COLS;
@@ -925,14 +1256,15 @@
                 el.style.left = targetX + 'px';
             }
             
-            applyHorizontalSlide(dragRow, steps);
+            applyHorizontalSlide(dragEtage, steps);
             
             setTimeout(() => {
                 clearGhosts();
                 updateAllPositions(false);
+                updateHalos(); // Recalculer les halos après le drag
                 
                 if (steps !== 0) {
-                    log(`Drag horizontal row ${dragRow}, ${steps} steps`);
+                    log(`Drag horizontal étage ${dragEtage}, ${steps} steps`);
                     // PAS de gravité pour horizontal, juste check fusions
                     checkFusions();
                 } else {
@@ -997,6 +1329,7 @@
             dragAxis = null;
             dragCol = -1;
             dragRow = -1;
+            dragEtage = -1;
             initialPositions = [];
             draggedFaceIndices = [];
         }
@@ -1032,6 +1365,8 @@
                 const pos = getSlotPosition(face.slot);
                 dragRow = pos.row;
                 dragCol = pos.col;
+                // Calculer l'étage : row * 2 + (0 si top, 1 si bottom)
+                dragEtage = pos.row * 2 + (pos.isBottom ? 1 : 0);
                 
                 isDragging = true;
                 dragAxis = null;
@@ -1054,7 +1389,7 @@
                 const threshold = 8;
                 if (Math.abs(deltaX) > threshold || Math.abs(deltaY) > threshold) {
                     if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                        startHorizontalDrag(dragRow);
+                        startHorizontalDrag(dragEtage);
                     } else {
                         startVerticalDrag(dragCol);
                     }
@@ -1095,7 +1430,7 @@
             updateDimensions();
             initFaces();
             initialRender();
-            log('ADAM V4 prêt');
+            log('ADAM V4 - 8 Étages prêt');
             
             // Vérifier les fusions au démarrage
             setTimeout(checkFusions, 100);
