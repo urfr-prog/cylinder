@@ -304,6 +304,8 @@
             <span class="score-value combo" id="combo">×1</span>
         </div>
         
+        <button id="undo-btn" onclick="undo()" style="padding: 4px 12px; font-size: 0.7rem;">Undo</button>
+        
         <div class="score-item">
             <span class="score-label">Best</span>
             <span class="score-value" id="best">0</span>
@@ -1129,12 +1131,12 @@
             if (!el1 || !el2) { isAnimating = false; return; }
             
             // Faces qui fusionnent (disparaissent)
-            const fusionFace1 = getExposedFace(d1, dir === 'h' ? 'right' : 'bottom');
-            const fusionFace2 = getExposedFace(d2, dir === 'h' ? 'left' : 'top');
+            const fusionFace1 = getExposedFace(d1, dir === 'h' ? 'right' : 'bottom') || d1.face1;
+            const fusionFace2 = getExposedFace(d2, dir === 'h' ? 'left' : 'top') || d2.face1;
             
             // Faces partenaires (celles qui restent)
-            const nf1 = getRemainingFace(d1, dir === 'h' ? 'right' : 'bottom');
-            const nf2 = getRemainingFace(d2, dir === 'h' ? 'left' : 'top');
+            const nf1 = getRemainingFace(d1, dir === 'h' ? 'right' : 'bottom') || d1.face2;
+            const nf2 = getRemainingFace(d2, dir === 'h' ? 'left' : 'top') || d2.face2;
             
             // État actuel des faces qui fusionnent
             const currentState = getExposedState(d1, dir === 'h' ? 'right' : 'bottom');
@@ -1174,8 +1176,8 @@
             setTimeout(() => {
                 // Le domino résultant avec les faces partenaires
                 dominos[idx1] = { 
-                    face1: nf1 || 'circle', 
-                    face2: nf2 || 'circle', 
+                    face1: nf1, 
+                    face2: nf2, 
                     rotation: dir === 'h' ? 90 : 0, 
                     state: 'white',
                     state1: partnerState,
@@ -1198,12 +1200,12 @@
             if (!el1 || !el2 || !el3) { isAnimating = false; return; }
             
             // Faces qui fusionnent (4 faces au total, 2 paires)
-            const fusionFace1 = getExposedFace(d1, dir === 'h' ? 'right' : 'bottom');
-            const fusionFace2 = getExposedFace(d3, dir === 'h' ? 'left' : 'top');
+            const fusionFace1 = getExposedFace(d1, dir === 'h' ? 'right' : 'bottom') || d1.face1;
+            const fusionFace2 = getExposedFace(d3, dir === 'h' ? 'left' : 'top') || d3.face1;
             
             // Faces partenaires (les faces externes qui restent)
-            const nf1 = getRemainingFace(d1, dir === 'h' ? 'right' : 'bottom');
-            const nf2 = getRemainingFace(d3, dir === 'h' ? 'left' : 'top');
+            const nf1 = getRemainingFace(d1, dir === 'h' ? 'right' : 'bottom') || d1.face2;
+            const nf2 = getRemainingFace(d3, dir === 'h' ? 'left' : 'top') || d3.face2;
             
             // État actuel
             const currentState = getExposedState(d1, dir === 'h' ? 'right' : 'bottom');
@@ -1241,8 +1243,8 @@
             setTimeout(() => {
                 // Le domino résultant avec les faces partenaires
                 dominos[idx2] = { 
-                    face1: nf1 || 'circle', 
-                    face2: nf2 || 'circle', 
+                    face1: nf1, 
+                    face2: nf2, 
                     rotation: d2.rotation, 
                     state: 'white',
                     state1: partnerState,
@@ -1336,24 +1338,27 @@
         }
 
         function respawnTwinDominos(twins) {
-            // D'abord faire tomber tout ce qui peut tomber
             let spawned = 0;
             
-            // Chercher des colonnes avec de l'espace en haut (y=0)
+            // Spawn en haut de la grille (y=0), chercher colonnes libres
             for (let c = 0; c < COLS && spawned < twins.length; c++) {
-                const topIdx = c; // y=0, première ligne (en haut)
+                const topIdx = c; // y=0
                 if (!dominos[topIdx]) {
                     dominos[topIdx] = twins[spawned];
                     spawned++;
                 }
             }
             
-            // Si on n'a pas pu tout placer, forcer en écrasant (ne devrait pas arriver)
+            // Si y=0 est plein, chercher la première case vide n'importe où (priorité haut)
             if (spawned < twins.length) {
-                console.warn('Pas assez de place pour respawn twins, forçage...');
-                for (let c = 0; c < COLS && spawned < twins.length; c++) {
-                    dominos[c] = twins[spawned];
-                    spawned++;
+                for (let y = 0; y < ROWS && spawned < twins.length; y++) {
+                    for (let x = 0; x < COLS && spawned < twins.length; x++) {
+                        const idx = getIndex(x, y);
+                        if (!dominos[idx]) {
+                            dominos[idx] = twins[spawned];
+                            spawned++;
+                        }
+                    }
                 }
             }
             
